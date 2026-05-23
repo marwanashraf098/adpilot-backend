@@ -32,7 +32,9 @@ public class AuthService {
         userRepository.save(user);
 
         String token = jwtService.generateToken(user.getEmail());
-        return new AuthResponse(token, user.getEmail(), user.getBusinessName());
+        // in register method - replace the return line
+        return new AuthResponse(token, user.getEmail(), user.getBusinessName(), user.getId());
+
     }
 
     public AuthResponse login(LoginRequest request) {
@@ -45,6 +47,7 @@ public class AuthService {
         }
 
         String token = jwtService.generateToken(user.getEmail());
-        return new AuthResponse(token, user.getEmail(), user.getBusinessName());
+        // in login method - replace the return line
+        return new AuthResponse(token, user.getEmail(), user.getBusinessName(), user.getId());
     }
 }
