@@ -24,6 +24,7 @@ public class SecurityConfig {
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/api/auth/**").permitAll()
                         .requestMatchers("/api/meta/**").permitAll()
+                        .requestMatchers("/api/campaigns/**").permitAll()
                         .anyRequest().authenticated()
                 );
         return http.build();
