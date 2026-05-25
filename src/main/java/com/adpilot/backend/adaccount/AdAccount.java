@@ -7,6 +7,8 @@ import lombok.NoArgsConstructor;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import java.time.LocalDateTime;
+import com.fasterxml.jackson.annotation.JsonIgnore;
+
 
 @Entity
 @Table(name = "ad_accounts")
@@ -30,6 +32,7 @@ public class AdAccount {
     @Column(nullable = false)
     private String platformAccountId;
 
+    @JsonIgnore
     @Column(nullable = false, length = 2000)
     private String accessToken;
 

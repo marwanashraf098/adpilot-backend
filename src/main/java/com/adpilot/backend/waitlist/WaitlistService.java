@@ -1,5 +1,6 @@
 package com.adpilot.backend.waitlist;
 
+import com.adpilot.backend.notification.WhatsAppService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
@@ -8,6 +9,7 @@ import org.springframework.stereotype.Service;
 public class WaitlistService {
 
     private final WaitlistRepository waitlistRepository;
+    private final WhatsAppService whatsAppService;
 
     public String addToWaitlist(String email) {
         if (waitlistRepository.existsByEmail(email)) {
@@ -19,6 +21,10 @@ public class WaitlistService {
                 .build();
 
         waitlistRepository.save(entry);
+
+        // Notify you via WhatsApp
+        whatsAppService.sendWaitlistNotification(email);
+
         return "success";
     }
 

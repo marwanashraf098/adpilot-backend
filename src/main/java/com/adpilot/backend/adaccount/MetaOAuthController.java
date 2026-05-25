@@ -27,7 +27,6 @@ public class MetaOAuthController {
             @RequestParam String code,
             @RequestParam String state) {
 
-        // state = userId we passed earlier
         String userId = state;
 
         // Exchange code for access token
@@ -36,25 +35,30 @@ public class MetaOAuthController {
         // Get their ad accounts from Meta
         List<Map> adAccounts = metaOAuthService.getAdAccounts(accessToken);
 
-        // Save the first ad account (we'll let them choose later)
+        // Save ALL ad accounts
         if (adAccounts != null && !adAccounts.isEmpty()) {
-            Map firstAccount = adAccounts.get(0);
-            String platformAccountId = (String) firstAccount.get("id");
-            String accountName = (String) firstAccount.get("name");
-            String currency = (String) firstAccount.get("currency");
+            for (Map account : adAccounts) {
+                String platformAccountId = (String) account.get("id");
+                String accountName = (String) account.get("name");
+                String currency = (String) account.get("currency");
 
-            metaOAuthService.saveAdAccount(
-                    userId,
-                    accessToken,
-                    platformAccountId,
-                    accountName,
-                    currency
-            );
+                try {
+                    metaOAuthService.saveAdAccount(
+                            userId,
+                            accessToken,
+                            platformAccountId,
+                            accountName,
+                            currency
+                    );
+                } catch (RuntimeException e) {
+                    // Skip already connected accounts
+                    System.out.println("Skipping already connected account: " + platformAccountId);
+                }
+            }
         }
 
-        // Redirect to frontend dashboard
         return ResponseEntity.ok(Map.of(
-                "message", "Account connected successfully",
+                "message", "Accounts connected successfully",
                 "accounts", adAccounts != null ? adAccounts : List.of()
         ));
     }
