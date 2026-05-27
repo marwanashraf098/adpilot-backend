@@ -56,4 +56,10 @@ public class User {
         AUTOMOTIVE,
         OTHER
     }
+
+    @Column
+    private String phoneNumber;
+
+    @Column(nullable = false)
+    private boolean onboardingComplete = false;
 }

@@ -57,10 +57,9 @@ public class MetaOAuthController {
             }
         }
 
-        return ResponseEntity.ok(Map.of(
-                "message", "Accounts connected successfully",
-                "accounts", adAccounts != null ? adAccounts : List.of()
-        ));
+        return ResponseEntity.status(302)
+                .header("Location", "http://localhost:5173/onboarding?step=7&connected=true")
+                .build();
     }
 
     // Get all connected accounts for a user
