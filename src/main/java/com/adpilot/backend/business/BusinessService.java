@@ -4,7 +4,9 @@ import com.adpilot.backend.user.User;
 import com.adpilot.backend.user.UserRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.springframework.web.reactive.function.client.WebClient;
 
+import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
 
@@ -14,6 +16,7 @@ public class BusinessService {
 
     private final BusinessRepository businessRepository;
     private final UserRepository userRepository;
+    private final WebClient.Builder webClientBuilder;
 
     public Business getOrCreateBusiness(String userId) {
         return businessRepository.findByUserId(userId).orElseGet(() -> {
@@ -50,7 +53,7 @@ public class BusinessService {
         if (updates.containsKey("averageCustomerValue")) business.setAverageCustomerValue(((Number) updates.get("averageCustomerValue")).doubleValue());
         if (updates.containsKey("buyingCycle")) business.setBuyingCycle((String) updates.get("buyingCycle"));
         if (updates.containsKey("mainGoal")) business.setMainGoal((String) updates.get("mainGoal"));
-        if (updates.containsKey("monthlyBudget")) business.setMonthlyBudget(((Number) updates.get("monthlyBudget")).doubleValue());
+        if (updates.containsKey("monthlyBudget")) business.setMonthlyBudget((String) updates.get("monthlyBudget"));
         if (updates.containsKey("targetCpl")) business.setTargetCpl(((Number) updates.get("targetCpl")).doubleValue());
         if (updates.containsKey("phoneNumber")) business.setPhoneNumber((String) updates.get("phoneNumber"));
         if (updates.containsKey("biggestChallenge")) business.setBiggestChallenge((String) updates.get("biggestChallenge"));
@@ -58,9 +61,66 @@ public class BusinessService {
         if (updates.containsKey("competitorAdvantage")) business.setCompetitorAdvantage((String) updates.get("competitorAdvantage"));
         if (updates.containsKey("ourAdvantage")) business.setOurAdvantage((String) updates.get("ourAdvantage"));
         if (updates.containsKey("healthScore")) business.setHealthScore((Integer) updates.get("healthScore"));
-        if (updates.containsKey("onboardingComplete")) business.setOnboardingComplete((Boolean) updates.get("onboardingComplete"));
+
+        if (updates.containsKey("onboardingComplete") && Boolean.TRUE.equals(updates.get("onboardingComplete"))) {
+            business.setOnboardingComplete(true);
+            businessRepository.save(business);
+            buildBusinessRag(userId);
+            return business;
+        }
 
         return businessRepository.save(business);
+    }
+
+    public void buildBusinessRag(String userId) {
+        getBusiness(userId).ifPresent(business -> {
+            try {
+                Map<String, Object> businessData = new HashMap<>();
+                businessData.put("businessName", business.getBusinessName());
+                businessData.put("industry", business.getIndustry());
+                businessData.put("city", business.getCity());
+                businessData.put("description", business.getDescription());
+                businessData.put("services", business.getServices());
+                businessData.put("uniqueSellingPoint", business.getUniqueSellingPoint());
+                businessData.put("priceRange", business.getPriceRange());
+                businessData.put("brandTone", business.getBrandTone());
+                businessData.put("targetAudience", business.getTargetAudience());
+                businessData.put("minAge", business.getMinAge());
+                businessData.put("maxAge", business.getMaxAge());
+                businessData.put("gender", business.getGender());
+                businessData.put("customerSource", business.getCustomerSource());
+                businessData.put("buyingCycle", business.getBuyingCycle());
+                businessData.put("averageCustomerValue", business.getAverageCustomerValue());
+                businessData.put("mainGoal", business.getMainGoal());
+                businessData.put("monthlyBudget", business.getMonthlyBudget());
+                businessData.put("targetCpl", business.getTargetCpl());
+                businessData.put("biggestChallenge", business.getBiggestChallenge());
+                businessData.put("competitors", business.getCompetitors());
+                businessData.put("competitorAdvantage", business.getCompetitorAdvantage());
+                businessData.put("ourAdvantage", business.getOurAdvantage());
+                businessData.put("websiteUrl", business.getWebsiteUrl());
+                businessData.put("facebookPageUrl", business.getFacebookPageUrl());
+                businessData.put("instagramUrl", business.getInstagramUrl());
+
+                Map<String, Object> ragRequest = new HashMap<>();
+                ragRequest.put("business_id", userId);
+                ragRequest.put("business_data", businessData);
+
+                webClientBuilder.build()
+                        .post()
+                        .uri("http://localhost:8001/build-business-rag")
+                        .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
+                        .bodyValue(ragRequest)
+                        .retrieve()
+                        .bodyToMono(Map.class)
+                        .subscribe(
+                                result -> System.out.println("Business RAG built for user: " + userId),
+                                error -> System.out.println("Business RAG build failed: " + error.getMessage())
+                        );
+            } catch (Exception e) {
+                System.out.println("Business RAG build error: " + e.getMessage());
+            }
+        });
     }
 
     public Optional<Business> getBusiness(String userId) {

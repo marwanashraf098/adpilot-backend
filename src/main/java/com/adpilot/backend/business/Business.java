@@ -59,7 +59,7 @@ public class Business {
 
     // Step 4 — Goals
     private String mainGoal;
-    private Double monthlyBudget;
+    private String monthlyBudget;
     private Double targetCpl;
     private String phoneNumber;
     private String biggestChallenge;
