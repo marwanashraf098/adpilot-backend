@@ -20,6 +20,7 @@ public class CampaignService {
     private final AdAccountRepository adAccountRepository;
     private final WebClient.Builder webClientBuilder;
     private final WhatsAppService whatsAppService;
+    private final com.adpilot.backend.business.BusinessRepository businessRepository;
 
     // Pull campaigns from Meta API and save to database
     public List<Campaign> syncCampaigns(String userId) {
@@ -149,8 +150,10 @@ public class CampaignService {
                 .distinct()
                 .forEach(userId -> {
                     try {
-                        syncCampaigns(userId);
+                        List<Campaign> campaigns = syncCampaigns(userId);
                         System.out.println("Synced campaigns for user: " + userId);
+                        // Analyze campaign learnings and update RAG
+                        analyzeCampaignLearnings(userId, campaigns);
                     } catch (Exception e) {
                         System.out.println("Sync failed for user: " + userId + " - " + e.getMessage());
                     }
@@ -169,5 +172,53 @@ public class CampaignService {
     private Long parseLong(Object val) {
         if (val == null) return null;
         try { return Long.parseLong(val.toString()); } catch (Exception e) { return null; }
+    }
+
+    private void analyzeCampaignLearnings(String userId, List<Campaign> campaigns) {
+        if (campaigns == null || campaigns.isEmpty()) return;
+
+        try {
+            // Get user's industry from business profile
+            String industry = "business";
+            try {
+                var business = businessRepository.findByUserId(userId);
+                if (business.isPresent() && business.get().getIndustry() != null) {
+                    industry = business.get().getIndustry();
+                }
+            } catch (Exception ignored) {}
+
+            // Build campaigns payload
+            List<Map<String, Object>> campaignMaps = campaigns.stream().map(c -> {
+                Map<String, Object> map = new java.util.HashMap<>();
+                map.put("name", c.getName());
+                map.put("status", c.getStatus());
+                map.put("spend", c.getSpend() != null ? c.getSpend() : 0);
+                map.put("clicks", c.getClicks() != null ? c.getClicks() : 0);
+                map.put("ctr", c.getCtr() != null ? c.getCtr() : 0);
+                map.put("cpc", c.getCpc() != null ? c.getCpc() : 0);
+                map.put("daily_budget", c.getDailyBudget() != null ? c.getDailyBudget() : 0);
+                map.put("impressions", c.getImpressions() != null ? c.getImpressions() : 0);
+                return map;
+            }).collect(java.util.stream.Collectors.toList());
+
+            Map<String, Object> payload = new java.util.HashMap<>();
+            payload.put("business_id", userId);
+            payload.put("campaigns", campaignMaps);
+            payload.put("industry", industry);
+
+            webClientBuilder.build()
+                    .post()
+                    .uri("http://localhost:8001/analyze-campaign-learnings")
+                    .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
+                    .bodyValue(payload)
+                    .retrieve()
+                    .bodyToMono(Map.class)
+                    .subscribe(
+                            result -> System.out.println("Campaign learnings updated for user: " + userId),
+                            error -> System.out.println("Campaign learning failed: " + error.getMessage())
+                    );
+        } catch (Exception e) {
+            System.out.println("Campaign learning error: " + e.getMessage());
+        }
     }
 }
