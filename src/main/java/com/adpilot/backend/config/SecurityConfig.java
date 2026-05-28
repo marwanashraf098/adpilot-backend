@@ -27,6 +27,7 @@ public class SecurityConfig {
                         .requestMatchers("/api/campaigns/**").permitAll()
                         .requestMatchers("/api/waitlist/**").permitAll()
                         .requestMatchers("/api/business/**").permitAll()
+                        .requestMatchers("/api/audit/**").permitAll()
                         .anyRequest().authenticated()
                 );
         return http.build();
