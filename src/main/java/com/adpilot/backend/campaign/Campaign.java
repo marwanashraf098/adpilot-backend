@@ -43,7 +43,7 @@ public class Campaign {
     private Double ctr;
     private Double cpc;
     private Double cpm;
-    private Integer conversions;
+    private Long conversions;
     private Double costPerResult;
     private Double roas;
 

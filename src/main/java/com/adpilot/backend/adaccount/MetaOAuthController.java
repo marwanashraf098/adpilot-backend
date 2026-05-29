@@ -9,7 +9,7 @@ import java.util.Map;
 @RestController
 @RequestMapping("/api/meta")
 @RequiredArgsConstructor
-@CrossOrigin(origins = "http://localhost:5173")
+@CrossOrigin(origins = "*")
 public class MetaOAuthController {
 
     private final MetaOAuthService metaOAuthService;
@@ -58,7 +58,7 @@ public class MetaOAuthController {
         }
 
         return ResponseEntity.status(302)
-                .header("Location", "http://localhost:5173/onboarding?step=7&connected=true")
+                .header("Location", "http://localhost:5173/dashboard?connected=true")
                 .build();
     }
 

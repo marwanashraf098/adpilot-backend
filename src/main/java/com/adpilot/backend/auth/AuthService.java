@@ -33,7 +33,7 @@ public class AuthService {
 
         String token = jwtService.generateToken(user.getEmail());
         // in register method - replace the return line
-        return new AuthResponse(token, user.getEmail(), user.getBusinessName(), user.getId());
+        return new AuthResponse(token, user.getEmail(), user.getBusinessName(), user.getId(), user.getIndustry() != null ? user.getIndustry().toString() : "business");
 
     }
 
@@ -48,6 +48,6 @@ public class AuthService {
 
         String token = jwtService.generateToken(user.getEmail());
         // in login method - replace the return line
-        return new AuthResponse(token, user.getEmail(), user.getBusinessName(), user.getId());
+        return new AuthResponse(token, user.getEmail(), user.getBusinessName(), user.getId(), user.getIndustry() != null ? user.getIndustry().toString() : "business");
     }
 }
