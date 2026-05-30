@@ -4,6 +4,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import java.util.List;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api/campaigns")
@@ -33,5 +34,12 @@ public class CampaignController {
     @GetMapping("/adsets/{adSetId}/ads")
     public ResponseEntity<List<Ad>> getAds(@PathVariable String adSetId) {
         return ResponseEntity.ok(adRepository.findByAdSetId(adSetId));
+    }
+
+    @PostMapping("/create")
+    public ResponseEntity<Map<String, Object>> createCampaign(
+            @RequestParam String userId,
+            @RequestBody Map<String, Object> campaignData) {
+        return ResponseEntity.ok(campaignService.createCampaign(userId, campaignData));
     }
 }

@@ -422,4 +422,111 @@ public class CampaignService {
             System.out.println("Campaign learning error: " + e.getMessage());
         }
     }
+
+    public Map<String, Object> createCampaign(String userId, Map<String, Object> campaignData) {
+        List<AdAccount> accounts = adAccountRepository.findByUserId(userId);
+        AdAccount adAccount = accounts.stream()
+                .filter(a -> a.getPlatform().equals("META"))
+                .filter(a -> a.getCurrency().equals("EGP"))
+                .findFirst()
+                .orElseThrow(() -> new RuntimeException("No Meta EGP ad account found"));
+
+        String accessToken = adAccount.getAccessToken();
+        String accountId = adAccount.getPlatformAccountId();
+
+        try {
+            // Step 1 — Create campaign
+            Map<String, Object> campaignPayload = new java.util.HashMap<>();
+            campaignPayload.put("name", campaignData.get("name"));
+            campaignPayload.put("objective", campaignData.get("objective"));
+            campaignPayload.put("status", "PAUSED");
+            campaignPayload.put("special_ad_categories", new java.util.ArrayList<>());
+            campaignPayload.put("is_adset_budget_sharing_enabled", false);
+
+            System.out.println("Creating campaign: " + campaignPayload);
+
+            Map campaignResponse = webClientBuilder.build()
+                    .post()
+                    .uri("https://graph.facebook.com/v19.0/" + accountId + "/campaigns?access_token=" + accessToken)
+                    .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
+                    .bodyValue(campaignPayload)
+                    .retrieve()
+                    .onStatus(status -> status.is4xxClientError(), response ->
+                            response.bodyToMono(String.class).map(body -> {
+                                System.out.println("Meta campaign error: " + body);
+                                return new RuntimeException("Meta error: " + body);
+                            })
+                    )
+                    .bodyToMono(Map.class)
+                    .block();
+
+            String platformCampaignId = (String) campaignResponse.get("id");
+            System.out.println("Campaign created: " + platformCampaignId);
+
+            // Step 2 — Create ad set
+            Map<String, Object> adSetPayload = new java.util.HashMap<>();
+            adSetPayload.put("name", campaignData.get("adSetName"));
+            adSetPayload.put("campaign_id", platformCampaignId);
+            adSetPayload.put("daily_budget", (int)(Double.parseDouble(campaignData.get("dailyBudget").toString()) * 100));
+            adSetPayload.put("billing_event", "IMPRESSIONS");
+            adSetPayload.put("optimization_goal", campaignData.get("optimizationGoal"));
+            adSetPayload.put("bid_strategy", "LOWEST_COST_WITHOUT_CAP");
+            adSetPayload.put("status", "PAUSED");
+
+            // Minimal targeting — guaranteed to work
+            Map<String, Object> cleanTargeting = new java.util.HashMap<>();
+            cleanTargeting.put("age_min", 18);
+            cleanTargeting.put("age_max", 65);
+            Map<String, Object> geoLocations = new java.util.HashMap<>();
+            geoLocations.put("countries", java.util.List.of("EG"));
+            cleanTargeting.put("geo_locations", geoLocations);
+            adSetPayload.put("targeting", cleanTargeting);
+
+            System.out.println("Creating ad set: " + adSetPayload);
+
+            Map adSetResponse = webClientBuilder.build()
+                    .post()
+                    .uri("https://graph.facebook.com/v19.0/" + accountId + "/adsets?access_token=" + accessToken)
+                    .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
+                    .bodyValue(adSetPayload)
+                    .retrieve()
+                    .onStatus(status -> status.is4xxClientError(), response ->
+                            response.bodyToMono(String.class).map(body -> {
+                                System.out.println("Meta adset error: " + body);
+                                return new RuntimeException("Meta error: " + body);
+                            })
+                    )
+                    .bodyToMono(Map.class)
+                    .block();
+
+            String platformAdSetId = (String) adSetResponse.get("id");
+            System.out.println("Ad set created: " + platformAdSetId);
+
+            Map<String, Object> result = new java.util.HashMap<>();
+            result.put("success", true);
+            result.put("campaignId", platformCampaignId);
+            result.put("adSetId", platformAdSetId);
+            result.put("status", "PAUSED");
+            result.put("message", "Campaign created successfully — status is PAUSED, review and activate when ready");
+            return result;
+
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to create campaign: " + e.getMessage());
+        }
+    }
+
+    private String buildFormData(Map<String, Object> params) {
+        StringBuilder sb = new StringBuilder();
+        for (Map.Entry<String, Object> entry : params.entrySet()) {
+            if (sb.length() > 0) sb.append("&");
+            try {
+                sb.append(java.net.URLEncoder.encode(entry.getKey(), "UTF-8"))
+                        .append("=")
+                        .append(java.net.URLEncoder.encode(entry.getValue().toString(), "UTF-8"));
+            } catch (Exception e) {
+                sb.append(entry.getKey()).append("=").append(entry.getValue());
+            }
+        }
+        return sb.toString();
+    }
 }
