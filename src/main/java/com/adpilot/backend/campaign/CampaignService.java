@@ -473,13 +473,15 @@ public class CampaignService {
             adSetPayload.put("bid_strategy", "LOWEST_COST_WITHOUT_CAP");
             adSetPayload.put("status", "PAUSED");
 
-            // Minimal targeting — guaranteed to work
             Map<String, Object> cleanTargeting = new java.util.HashMap<>();
             cleanTargeting.put("age_min", 18);
             cleanTargeting.put("age_max", 65);
             Map<String, Object> geoLocations = new java.util.HashMap<>();
             geoLocations.put("countries", java.util.List.of("EG"));
             cleanTargeting.put("geo_locations", geoLocations);
+            Map<String, Object> promotedObject = new java.util.HashMap<>();
+            promotedObject.put("page_id", "1108623479004638");
+            adSetPayload.put("promoted_object", promotedObject);
             adSetPayload.put("targeting", cleanTargeting);
 
             System.out.println("Creating ad set: " + adSetPayload);
@@ -502,31 +504,189 @@ public class CampaignService {
             String platformAdSetId = (String) adSetResponse.get("id");
             System.out.println("Ad set created: " + platformAdSetId);
 
+            // Step 3 — Upload image and create ad
+            String adId = null;
+            Object imageFile = campaignData.get("image");
+            String imageUrlParam = (String) campaignData.get("imageUrl");
+
+            if (imageFile != null || imageUrlParam != null) {
+                try {
+                    String imageHash = null;
+
+                    if (imageFile instanceof org.springframework.web.multipart.MultipartFile) {
+                        org.springframework.web.multipart.MultipartFile multipartFile =
+                                (org.springframework.web.multipart.MultipartFile) imageFile;
+
+                        org.springframework.core.io.ByteArrayResource imageResource =
+                                new org.springframework.core.io.ByteArrayResource(multipartFile.getBytes()) {
+                                    @Override
+                                    public String getFilename() {
+                                        return multipartFile.getOriginalFilename();
+                                    }
+                                };
+
+                        org.springframework.util.MultiValueMap<String, Object> imagePayload =
+                                new org.springframework.util.LinkedMultiValueMap<>();
+                        imagePayload.add("filename", imageResource);
+                        imagePayload.add("access_token", accessToken);
+
+                        Map imageResponse = webClientBuilder.build()
+                                .post()
+                                .uri("https://graph.facebook.com/v19.0/" + accountId + "/adimages")
+                                .contentType(org.springframework.http.MediaType.MULTIPART_FORM_DATA)
+                                .bodyValue(imagePayload)
+                                .retrieve()
+                                .onStatus(status -> status.is4xxClientError(), response ->
+                                        response.bodyToMono(String.class).map(b -> {
+                                            System.out.println("Meta image upload error: " + b);
+                                            return new RuntimeException("Image upload error: " + b);
+                                        })
+                                )
+                                .bodyToMono(Map.class)
+                                .block();
+
+                        if (imageResponse != null && imageResponse.get("images") != null) {
+                            Map images = (Map) imageResponse.get("images");
+                            Map firstImage = (Map) images.values().iterator().next();
+                            imageHash = (String) firstImage.get("hash");
+                            System.out.println("Image uploaded, hash: " + imageHash);
+                        }
+
+                    } else if (imageUrlParam != null) {
+                        Map<String, Object> imagePayload = new java.util.HashMap<>();
+                        imagePayload.put("url", imageUrlParam);
+                        imagePayload.put("access_token", accessToken);
+
+                        Map imageResponse = webClientBuilder.build()
+                                .post()
+                                .uri("https://graph.facebook.com/v19.0/" + accountId + "/adimages")
+                                .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
+                                .bodyValue(imagePayload)
+                                .retrieve()
+                                .bodyToMono(Map.class)
+                                .block();
+
+                        if (imageResponse != null && imageResponse.get("images") != null) {
+                            Map images = (Map) imageResponse.get("images");
+                            Map firstImage = (Map) images.values().iterator().next();
+                            imageHash = (String) firstImage.get("hash");
+                            System.out.println("Image uploaded from URL, hash: " + imageHash);
+                        }
+                    }
+
+                    if (imageHash != null) {
+                        // Build link data
+                        Map<String, Object> linkData = new java.util.HashMap<>();
+                        linkData.put("image_hash", imageHash);
+                        linkData.put("link", campaignData.getOrDefault("linkUrl", "https://adpilot-frontend-chi.vercel.app").toString());
+                        linkData.put("message", campaignData.getOrDefault("body", "").toString());
+                        linkData.put("name", campaignData.getOrDefault("headline", "").toString());
+
+                        Map<String, Object> callToAction = new java.util.HashMap<>();
+                        callToAction.put("type", campaignData.getOrDefault("cta", "LEARN_MORE").toString());
+                        Map<String, Object> ctaValue = new java.util.HashMap<>();
+                        ctaValue.put("link", campaignData.getOrDefault("linkUrl", "https://adpilot-frontend-chi.vercel.app").toString());
+                        callToAction.put("value", ctaValue);
+                        linkData.put("call_to_action", callToAction);
+
+                        // Get Facebook page ID
+                        String pageId = null;
+                        try {
+                            Map pagesResponse = webClientBuilder.build()
+                                    .get()
+                                    .uri("https://graph.facebook.com/v19.0/me/accounts?access_token=" + accessToken)
+                                    .retrieve()
+                                    .bodyToMono(Map.class)
+                                    .block();
+
+                            if (pagesResponse != null && pagesResponse.get("data") != null) {
+                                List<Map> pages = (List<Map>) pagesResponse.get("data");
+                                if (!pages.isEmpty()) {
+                                    pageId = (String) pages.get(0).get("id");
+                                    System.out.println("Using page ID from API: " + pageId);
+                                }
+                            }
+                        } catch (Exception e) {
+                            System.out.println("Could not fetch pages: " + e.getMessage());
+                        }
+
+                        if (pageId == null) {
+                            pageId = "1108623479004638";
+                            System.out.println("Using fallback page ID: " + pageId);
+                        }
+
+                        System.out.println("Proceeding with page ID: " + pageId + " and hash: " + imageHash);
+
+                        // Create ad creative
+                        Map<String, Object> objectStorySpec = new java.util.HashMap<>();
+                        objectStorySpec.put("page_id", pageId);
+                        objectStorySpec.put("link_data", linkData);
+
+                        Map<String, Object> creativePayload = new java.util.HashMap<>();
+                        creativePayload.put("name", campaignData.get("name") + " Creative");
+                        creativePayload.put("object_story_spec", objectStorySpec);
+
+                        Map creativeResponse = webClientBuilder.build()
+                                .post()
+                                .uri("https://graph.facebook.com/v19.0/" + accountId + "/adcreatives?access_token=" + accessToken)
+                                .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
+                                .bodyValue(creativePayload)
+                                .retrieve()
+                                .onStatus(status -> status.is4xxClientError(), response ->
+                                        response.bodyToMono(String.class).map(b -> {
+                                            System.out.println("Meta creative error: " + b);
+                                            return new RuntimeException("Creative error: " + b);
+                                        })
+                                )
+                                .bodyToMono(Map.class)
+                                .block();
+
+                        String creativeId = (String) creativeResponse.get("id");
+                        System.out.println("Creative created: " + creativeId);
+
+                        // Create ad
+                        Map<String, Object> adPayload = new java.util.HashMap<>();
+                        adPayload.put("name", campaignData.get("name") + " Ad");
+                        adPayload.put("adset_id", platformAdSetId);
+                        adPayload.put("creative", java.util.Map.of("creative_id", creativeId));
+                        adPayload.put("status", "PAUSED");
+
+                        Map adResponse = webClientBuilder.build()
+                                .post()
+                                .uri("https://graph.facebook.com/v19.0/" + accountId + "/ads?access_token=" + accessToken)
+                                .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
+                                .bodyValue(adPayload)
+                                .retrieve()
+                                .onStatus(status -> status.is4xxClientError(), response ->
+                                        response.bodyToMono(String.class).map(b -> {
+                                            System.out.println("Meta ad error: " + b);
+                                            return new RuntimeException("Ad error: " + b);
+                                        })
+                                )
+                                .bodyToMono(Map.class)
+                                .block();
+
+                        adId = (String) adResponse.get("id");
+                        System.out.println("Ad created: " + adId);
+                    }
+
+                } catch (Exception e) {
+                    System.out.println("Creative/Ad creation failed (non-critical): " + e.getMessage());
+                }
+            }
+
             Map<String, Object> result = new java.util.HashMap<>();
             result.put("success", true);
             result.put("campaignId", platformCampaignId);
             result.put("adSetId", platformAdSetId);
+            result.put("adId", adId);
             result.put("status", "PAUSED");
-            result.put("message", "Campaign created successfully — status is PAUSED, review and activate when ready");
+            result.put("message", adId != null
+                    ? "Campaign created with ad creative — status is PAUSED, review and activate when ready"
+                    : "Campaign and ad set created — add creative in Meta Ads Manager");
             return result;
 
         } catch (Exception e) {
             throw new RuntimeException("Failed to create campaign: " + e.getMessage());
         }
-    }
-
-    private String buildFormData(Map<String, Object> params) {
-        StringBuilder sb = new StringBuilder();
-        for (Map.Entry<String, Object> entry : params.entrySet()) {
-            if (sb.length() > 0) sb.append("&");
-            try {
-                sb.append(java.net.URLEncoder.encode(entry.getKey(), "UTF-8"))
-                        .append("=")
-                        .append(java.net.URLEncoder.encode(entry.getValue().toString(), "UTF-8"));
-            } catch (Exception e) {
-                sb.append(entry.getKey()).append("=").append(entry.getValue());
-            }
-        }
-        return sb.toString();
-    }
-}
+    }}
