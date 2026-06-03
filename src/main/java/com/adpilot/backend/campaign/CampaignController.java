@@ -36,7 +36,7 @@ public class CampaignController {
         return ResponseEntity.ok(adRepository.findByAdSetId(adSetId));
     }
 
-    @PostMapping(value = "/create", consumes = {org.springframework.http.MediaType.MULTIPART_FORM_DATA_VALUE, org.springframework.http.MediaType.APPLICATION_JSON_VALUE})
+    @PostMapping(value = "/create", consumes = {org.springframework.http.MediaType.MULTIPART_FORM_DATA_VALUE})
     public ResponseEntity<Map<String, Object>> createCampaign(
             @RequestParam String userId,
             @RequestParam String name,
@@ -49,8 +49,11 @@ public class CampaignController {
             @RequestParam(required = false) String body,
             @RequestParam(required = false) String cta,
             @RequestParam(required = false) String linkUrl,
-            @RequestParam(required = false) String imageUrl,
-            @RequestParam(required = false) org.springframework.web.multipart.MultipartFile image) {
+            @RequestParam(required = false) String imageUrls,
+            @RequestParam(required = false) String headlines,
+            @RequestParam(required = false) String bodies,
+            @RequestParam(required = false) List<org.springframework.web.multipart.MultipartFile> images,
+            @RequestParam(required = false) List<org.springframework.web.multipart.MultipartFile> videos) {
 
         Map<String, Object> campaignData = new java.util.HashMap<>();
         campaignData.put("name", name);
@@ -63,8 +66,11 @@ public class CampaignController {
         campaignData.put("body", body);
         campaignData.put("cta", cta != null ? cta : "LEARN_MORE");
         campaignData.put("linkUrl", linkUrl != null ? linkUrl : "https://adpilot-frontend-chi.vercel.app");
-        campaignData.put("imageUrl", imageUrl);
-        campaignData.put("image", image);
+        campaignData.put("imageUrls", imageUrls);
+        campaignData.put("headlines", headlines);
+        campaignData.put("bodies", bodies);
+        campaignData.put("images", images);
+        campaignData.put("videos", videos);
 
         return ResponseEntity.ok(campaignService.createCampaign(userId, campaignData));
     }

@@ -422,7 +422,6 @@ public class CampaignService {
             System.out.println("Campaign learning error: " + e.getMessage());
         }
     }
-
     public Map<String, Object> createCampaign(String userId, Map<String, Object> campaignData) {
         List<AdAccount> accounts = adAccountRepository.findByUserId(userId);
         AdAccount adAccount = accounts.stream()
@@ -443,7 +442,7 @@ public class CampaignService {
             campaignPayload.put("special_ad_categories", new java.util.ArrayList<>());
             campaignPayload.put("is_adset_budget_sharing_enabled", false);
 
-            System.out.println("Creating campaign: " + campaignPayload);
+            System.out.println("Creating campaign: " + campaignData.get("name"));
 
             Map campaignResponse = webClientBuilder.build()
                     .post()
@@ -452,9 +451,9 @@ public class CampaignService {
                     .bodyValue(campaignPayload)
                     .retrieve()
                     .onStatus(status -> status.is4xxClientError(), response ->
-                            response.bodyToMono(String.class).map(body -> {
-                                System.out.println("Meta campaign error: " + body);
-                                return new RuntimeException("Meta error: " + body);
+                            response.bodyToMono(String.class).map(b -> {
+                                System.out.println("Meta campaign error: " + b);
+                                return new RuntimeException("Meta error: " + b);
                             })
                     )
                     .bodyToMono(Map.class)
@@ -473,18 +472,17 @@ public class CampaignService {
             adSetPayload.put("bid_strategy", "LOWEST_COST_WITHOUT_CAP");
             adSetPayload.put("status", "PAUSED");
 
+            Map<String, Object> promotedObject = new java.util.HashMap<>();
+            promotedObject.put("page_id", "1108623479004638");
+            adSetPayload.put("promoted_object", promotedObject);
+
             Map<String, Object> cleanTargeting = new java.util.HashMap<>();
             cleanTargeting.put("age_min", 18);
             cleanTargeting.put("age_max", 65);
             Map<String, Object> geoLocations = new java.util.HashMap<>();
             geoLocations.put("countries", java.util.List.of("EG"));
             cleanTargeting.put("geo_locations", geoLocations);
-            Map<String, Object> promotedObject = new java.util.HashMap<>();
-            promotedObject.put("page_id", "1108623479004638");
-            adSetPayload.put("promoted_object", promotedObject);
             adSetPayload.put("targeting", cleanTargeting);
-
-            System.out.println("Creating ad set: " + adSetPayload);
 
             Map adSetResponse = webClientBuilder.build()
                     .post()
@@ -493,9 +491,9 @@ public class CampaignService {
                     .bodyValue(adSetPayload)
                     .retrieve()
                     .onStatus(status -> status.is4xxClientError(), response ->
-                            response.bodyToMono(String.class).map(body -> {
-                                System.out.println("Meta adset error: " + body);
-                                return new RuntimeException("Meta error: " + body);
+                            response.bodyToMono(String.class).map(b -> {
+                                System.out.println("Meta adset error: " + b);
+                                return new RuntimeException("Meta error: " + b);
                             })
                     )
                     .bodyToMono(Map.class)
@@ -504,175 +502,113 @@ public class CampaignService {
             String platformAdSetId = (String) adSetResponse.get("id");
             System.out.println("Ad set created: " + platformAdSetId);
 
-            // Step 3 — Upload image and create ad
+            // Step 3 — Upload all images and create ads
             String adId = null;
-            Object imageFile = campaignData.get("image");
-            String imageUrlParam = (String) campaignData.get("imageUrl");
+            List<String> imageHashes = new java.util.ArrayList<>();
 
-            if (imageFile != null || imageUrlParam != null) {
-                try {
-                    String imageHash = null;
-
-                    if (imageFile instanceof org.springframework.web.multipart.MultipartFile) {
-                        org.springframework.web.multipart.MultipartFile multipartFile =
-                                (org.springframework.web.multipart.MultipartFile) imageFile;
-
-                        org.springframework.core.io.ByteArrayResource imageResource =
-                                new org.springframework.core.io.ByteArrayResource(multipartFile.getBytes()) {
-                                    @Override
-                                    public String getFilename() {
-                                        return multipartFile.getOriginalFilename();
-                                    }
-                                };
-
-                        org.springframework.util.MultiValueMap<String, Object> imagePayload =
-                                new org.springframework.util.LinkedMultiValueMap<>();
-                        imagePayload.add("filename", imageResource);
-                        imagePayload.add("access_token", accessToken);
-
-                        Map imageResponse = webClientBuilder.build()
-                                .post()
-                                .uri("https://graph.facebook.com/v19.0/" + accountId + "/adimages")
-                                .contentType(org.springframework.http.MediaType.MULTIPART_FORM_DATA)
-                                .bodyValue(imagePayload)
-                                .retrieve()
-                                .onStatus(status -> status.is4xxClientError(), response ->
-                                        response.bodyToMono(String.class).map(b -> {
-                                            System.out.println("Meta image upload error: " + b);
-                                            return new RuntimeException("Image upload error: " + b);
-                                        })
-                                )
-                                .bodyToMono(Map.class)
-                                .block();
-
-                        if (imageResponse != null && imageResponse.get("images") != null) {
-                            Map images = (Map) imageResponse.get("images");
-                            Map firstImage = (Map) images.values().iterator().next();
-                            imageHash = (String) firstImage.get("hash");
-                            System.out.println("Image uploaded, hash: " + imageHash);
-                        }
-
-                    } else if (imageUrlParam != null) {
-                        Map<String, Object> imagePayload = new java.util.HashMap<>();
-                        imagePayload.put("url", imageUrlParam);
-                        imagePayload.put("access_token", accessToken);
-
-                        Map imageResponse = webClientBuilder.build()
-                                .post()
-                                .uri("https://graph.facebook.com/v19.0/" + accountId + "/adimages")
-                                .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
-                                .bodyValue(imagePayload)
-                                .retrieve()
-                                .bodyToMono(Map.class)
-                                .block();
-
-                        if (imageResponse != null && imageResponse.get("images") != null) {
-                            Map images = (Map) imageResponse.get("images");
-                            Map firstImage = (Map) images.values().iterator().next();
-                            imageHash = (String) firstImage.get("hash");
-                            System.out.println("Image uploaded from URL, hash: " + imageHash);
+            try {
+                // Upload uploaded image files
+                Object imagesObj = campaignData.get("images");
+                if (imagesObj instanceof List) {
+                    List<org.springframework.web.multipart.MultipartFile> imageFiles =
+                            (List<org.springframework.web.multipart.MultipartFile>) imagesObj;
+                    for (org.springframework.web.multipart.MultipartFile imageFile : imageFiles) {
+                        if (imageFile != null && !imageFile.isEmpty()) {
+                            String hash = uploadImageToMeta(accountId, accessToken, imageFile);
+                            if (hash != null) imageHashes.add(hash);
                         }
                     }
+                }
 
-                    if (imageHash != null) {
-                        // Build link data
-                        Map<String, Object> linkData = new java.util.HashMap<>();
-                        linkData.put("image_hash", imageHash);
-                        linkData.put("link", campaignData.getOrDefault("linkUrl", "https://adpilot-frontend-chi.vercel.app").toString());
-                        linkData.put("message", campaignData.getOrDefault("body", "").toString());
-                        linkData.put("name", campaignData.getOrDefault("headline", "").toString());
+                // Upload AI generated image URLs
+                String imageUrlsJson = (String) campaignData.get("imageUrls");
+                if (imageUrlsJson != null && !imageUrlsJson.isEmpty()) {
+                    com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+                    List<String> imageUrls = mapper.readValue(imageUrlsJson, List.class);
+                    for (String imageUrl : imageUrls) {
+                        String hash = uploadImageUrlToMeta(accountId, accessToken, imageUrl);
+                        if (hash != null) imageHashes.add(hash);
+                    }
+                }
 
-                        Map<String, Object> callToAction = new java.util.HashMap<>();
-                        callToAction.put("type", campaignData.getOrDefault("cta", "LEARN_MORE").toString());
-                        Map<String, Object> ctaValue = new java.util.HashMap<>();
-                        ctaValue.put("link", campaignData.getOrDefault("linkUrl", "https://adpilot-frontend-chi.vercel.app").toString());
-                        callToAction.put("value", ctaValue);
-                        linkData.put("call_to_action", callToAction);
+                // Remove duplicate hashes
+                imageHashes = imageHashes.stream().distinct().collect(java.util.stream.Collectors.toList());
+                System.out.println("Total unique image hashes: " + imageHashes.size());
 
-                        // Get Facebook page ID
-                        String pageId = null;
-                        try {
-                            Map pagesResponse = webClientBuilder.build()
-                                    .get()
-                                    .uri("https://graph.facebook.com/v19.0/me/accounts?access_token=" + accessToken)
+                if (!imageHashes.isEmpty()) {
+                    String pageId = getPageId(accessToken);
+
+                    // Parse copy variants
+                    List<String> headlines = new java.util.ArrayList<>();
+                    List<String> bodies = new java.util.ArrayList<>();
+                    com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+
+                    String headlinesJson = (String) campaignData.get("headlines");
+                    String bodiesJson = (String) campaignData.get("bodies");
+
+                    if (headlinesJson != null && !headlinesJson.isEmpty()) {
+                        headlines = mapper.readValue(headlinesJson, List.class);
+                    }
+                    if (bodiesJson != null && !bodiesJson.isEmpty()) {
+                        bodies = mapper.readValue(bodiesJson, List.class);
+                    }
+
+                    // Add default if no variants
+                    if (headlines.isEmpty()) headlines.add(campaignData.getOrDefault("headline", "Learn More").toString());
+                    if (bodies.isEmpty()) bodies.add(campaignData.getOrDefault("body", "").toString());
+
+                    String linkUrl = campaignData.getOrDefault("linkUrl", "https://adpilot-frontend-chi.vercel.app").toString();
+                    String ctaType = campaignData.getOrDefault("cta", "LEARN_MORE").toString();
+
+                    // Create one ad per image — each with rotated headline/body
+                    List<String> createdAdIds = new java.util.ArrayList<>();
+
+                    for (int i = 0; i < imageHashes.size(); i++) {
+                        String adHeadline = headlines.get(i % headlines.size());
+                        String adBody = bodies.get(i % bodies.size());
+
+                        String creativeId = createSingleCreative(
+                                accountId, accessToken, pageId,
+                                imageHashes.get(i), adHeadline, adBody,
+                                linkUrl, ctaType,
+                                campaignData.get("name").toString() + " v" + (i + 1));
+
+                        if (creativeId != null) {
+                            Map<String, Object> adPayload = new java.util.HashMap<>();
+                            adPayload.put("name", campaignData.get("name") + " Ad v" + (i + 1));
+                            adPayload.put("adset_id", platformAdSetId);
+                            adPayload.put("creative", java.util.Map.of("creative_id", creativeId));
+                            adPayload.put("status", "PAUSED");
+
+                            Map adResponse = webClientBuilder.build()
+                                    .post()
+                                    .uri("https://graph.facebook.com/v19.0/" + accountId + "/ads?access_token=" + accessToken)
+                                    .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
+                                    .bodyValue(adPayload)
                                     .retrieve()
+                                    .onStatus(status -> status.is4xxClientError(), response ->
+                                            response.bodyToMono(String.class).map(b -> {
+                                                System.out.println("Meta ad error: " + b);
+                                                return new RuntimeException("Ad error: " + b);
+                                            })
+                                    )
                                     .bodyToMono(Map.class)
                                     .block();
 
-                            if (pagesResponse != null && pagesResponse.get("data") != null) {
-                                List<Map> pages = (List<Map>) pagesResponse.get("data");
-                                if (!pages.isEmpty()) {
-                                    pageId = (String) pages.get(0).get("id");
-                                    System.out.println("Using page ID from API: " + pageId);
-                                }
+                            String createdAdId = (String) adResponse.get("id");
+                            if (createdAdId != null) {
+                                createdAdIds.add(createdAdId);
+                                System.out.println("Ad v" + (i + 1) + " created: " + createdAdId);
                             }
-                        } catch (Exception e) {
-                            System.out.println("Could not fetch pages: " + e.getMessage());
                         }
-
-                        if (pageId == null) {
-                            pageId = "1108623479004638";
-                            System.out.println("Using fallback page ID: " + pageId);
-                        }
-
-                        System.out.println("Proceeding with page ID: " + pageId + " and hash: " + imageHash);
-
-                        // Create ad creative
-                        Map<String, Object> objectStorySpec = new java.util.HashMap<>();
-                        objectStorySpec.put("page_id", pageId);
-                        objectStorySpec.put("link_data", linkData);
-
-                        Map<String, Object> creativePayload = new java.util.HashMap<>();
-                        creativePayload.put("name", campaignData.get("name") + " Creative");
-                        creativePayload.put("object_story_spec", objectStorySpec);
-
-                        Map creativeResponse = webClientBuilder.build()
-                                .post()
-                                .uri("https://graph.facebook.com/v19.0/" + accountId + "/adcreatives?access_token=" + accessToken)
-                                .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
-                                .bodyValue(creativePayload)
-                                .retrieve()
-                                .onStatus(status -> status.is4xxClientError(), response ->
-                                        response.bodyToMono(String.class).map(b -> {
-                                            System.out.println("Meta creative error: " + b);
-                                            return new RuntimeException("Creative error: " + b);
-                                        })
-                                )
-                                .bodyToMono(Map.class)
-                                .block();
-
-                        String creativeId = (String) creativeResponse.get("id");
-                        System.out.println("Creative created: " + creativeId);
-
-                        // Create ad
-                        Map<String, Object> adPayload = new java.util.HashMap<>();
-                        adPayload.put("name", campaignData.get("name") + " Ad");
-                        adPayload.put("adset_id", platformAdSetId);
-                        adPayload.put("creative", java.util.Map.of("creative_id", creativeId));
-                        adPayload.put("status", "PAUSED");
-
-                        Map adResponse = webClientBuilder.build()
-                                .post()
-                                .uri("https://graph.facebook.com/v19.0/" + accountId + "/ads?access_token=" + accessToken)
-                                .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
-                                .bodyValue(adPayload)
-                                .retrieve()
-                                .onStatus(status -> status.is4xxClientError(), response ->
-                                        response.bodyToMono(String.class).map(b -> {
-                                            System.out.println("Meta ad error: " + b);
-                                            return new RuntimeException("Ad error: " + b);
-                                        })
-                                )
-                                .bodyToMono(Map.class)
-                                .block();
-
-                        adId = (String) adResponse.get("id");
-                        System.out.println("Ad created: " + adId);
                     }
 
-                } catch (Exception e) {
-                    System.out.println("Creative/Ad creation failed (non-critical): " + e.getMessage());
+                    adId = createdAdIds.isEmpty() ? null : createdAdIds.get(0);
+                    System.out.println("Total ads created: " + createdAdIds.size());
                 }
+
+            } catch (Exception e) {
+                System.out.println("Creative/Ad creation failed (non-critical): " + e.getMessage());
             }
 
             Map<String, Object> result = new java.util.HashMap<>();
@@ -680,13 +616,226 @@ public class CampaignService {
             result.put("campaignId", platformCampaignId);
             result.put("adSetId", platformAdSetId);
             result.put("adId", adId);
+            result.put("imageCount", imageHashes.size());
             result.put("status", "PAUSED");
             result.put("message", adId != null
-                    ? "Campaign created with ad creative — status is PAUSED, review and activate when ready"
+                    ? "Campaign created with " + imageHashes.size() + " ad(s) — PAUSED, review and activate when ready"
                     : "Campaign and ad set created — add creative in Meta Ads Manager");
             return result;
 
         } catch (Exception e) {
             throw new RuntimeException("Failed to create campaign: " + e.getMessage());
         }
-    }}
+    }
+
+    // Helper — upload image file to Meta
+    private String uploadImageToMeta(String accountId, String accessToken,
+                                     org.springframework.web.multipart.MultipartFile imageFile) {
+        try {
+            org.springframework.core.io.ByteArrayResource imageResource =
+                    new org.springframework.core.io.ByteArrayResource(imageFile.getBytes()) {
+                        @Override public String getFilename() { return imageFile.getOriginalFilename(); }
+                    };
+
+            org.springframework.util.MultiValueMap<String, Object> payload =
+                    new org.springframework.util.LinkedMultiValueMap<>();
+            payload.add("filename", imageResource);
+            payload.add("access_token", accessToken);
+
+            Map response = webClientBuilder.build()
+                    .post()
+                    .uri("https://graph.facebook.com/v19.0/" + accountId + "/adimages")
+                    .contentType(org.springframework.http.MediaType.MULTIPART_FORM_DATA)
+                    .bodyValue(payload)
+                    .retrieve()
+                    .bodyToMono(Map.class)
+                    .block();
+
+            if (response != null && response.get("images") != null) {
+                Map images = (Map) response.get("images");
+                Map firstImage = (Map) images.values().iterator().next();
+                String hash = (String) firstImage.get("hash");
+                System.out.println("Image uploaded, hash: " + hash);
+                return hash;
+            }
+        } catch (Exception e) {
+            System.out.println("Image upload failed: " + e.getMessage());
+        }
+        return null;
+    }
+
+    // Helper — upload image URL to Meta
+    private String uploadImageUrlToMeta(String accountId, String accessToken, String imageUrl) {
+        try {
+            Map<String, Object> payload = new java.util.HashMap<>();
+            payload.put("url", imageUrl);
+            payload.put("access_token", accessToken);
+
+            Map response = webClientBuilder.build()
+                    .post()
+                    .uri("https://graph.facebook.com/v19.0/" + accountId + "/adimages")
+                    .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
+                    .bodyValue(payload)
+                    .retrieve()
+                    .bodyToMono(Map.class)
+                    .block();
+
+            if (response != null && response.get("images") != null) {
+                Map images = (Map) response.get("images");
+                Map firstImage = (Map) images.values().iterator().next();
+                String hash = (String) firstImage.get("hash");
+                System.out.println("Image URL uploaded, hash: " + hash);
+                return hash;
+            }
+        } catch (Exception e) {
+            System.out.println("Image URL upload failed: " + e.getMessage());
+        }
+        return null;
+    }
+
+    // Helper — get page ID
+    private String getPageId(String accessToken) {
+        try {
+            Map pagesResponse = webClientBuilder.build()
+                    .get()
+                    .uri("https://graph.facebook.com/v19.0/me/accounts?access_token=" + accessToken)
+                    .retrieve()
+                    .bodyToMono(Map.class)
+                    .block();
+
+            if (pagesResponse != null && pagesResponse.get("data") != null) {
+                List<Map> pages = (List<Map>) pagesResponse.get("data");
+                if (!pages.isEmpty()) {
+                    return (String) pages.get(0).get("id");
+                }
+            }
+        } catch (Exception e) {
+            System.out.println("Could not fetch pages: " + e.getMessage());
+        }
+        return "1108623479004638"; // fallback
+    }
+
+    // Helper — create single image creative
+    private String createSingleCreative(String accountId, String accessToken, String pageId,
+                                        String imageHash, String headline, String body, String linkUrl, String cta, String name) {
+        try {
+            Map<String, Object> linkData = new java.util.HashMap<>();
+            linkData.put("image_hash", imageHash);
+            linkData.put("link", linkUrl);
+            linkData.put("message", body);
+            linkData.put("name", headline);
+
+            Map<String, Object> callToAction = new java.util.HashMap<>();
+            callToAction.put("type", cta);
+            Map<String, Object> ctaValue = new java.util.HashMap<>();
+            ctaValue.put("link", linkUrl);
+            callToAction.put("value", ctaValue);
+            linkData.put("call_to_action", callToAction);
+
+            Map<String, Object> objectStorySpec = new java.util.HashMap<>();
+            objectStorySpec.put("page_id", pageId);
+            objectStorySpec.put("link_data", linkData);
+
+            Map<String, Object> creativePayload = new java.util.HashMap<>();
+            creativePayload.put("name", name + " Creative");
+            creativePayload.put("object_story_spec", objectStorySpec);
+
+            Map creativeResponse = webClientBuilder.build()
+                    .post()
+                    .uri("https://graph.facebook.com/v19.0/" + accountId + "/adcreatives?access_token=" + accessToken)
+                    .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
+                    .bodyValue(creativePayload)
+                    .retrieve()
+                    .onStatus(status -> status.is4xxClientError(), response ->
+                            response.bodyToMono(String.class).map(b -> {
+                                System.out.println("Meta creative error: " + b);
+                                return new RuntimeException("Creative error: " + b);
+                            })
+                    )
+                    .bodyToMono(Map.class)
+                    .block();
+
+            String creativeId = (String) creativeResponse.get("id");
+            System.out.println("Single creative created: " + creativeId);
+            return creativeId;
+        } catch (Exception e) {
+            System.out.println("Single creative failed: " + e.getMessage());
+            return null;
+        }
+    }
+
+    // Helper — create dynamic creative with multiple assets
+    private String createDynamicCreative(String accountId, String accessToken, String pageId,
+                                         List<String> imageHashes, List<String> headlines, List<String> bodies,
+                                         String linkUrl, String cta, String name) {
+        try {
+            // Build asset feed spec
+            Map<String, Object> assetFeedSpec = new java.util.HashMap<>();
+
+            // Images
+            List<Map<String, Object>> images = new java.util.ArrayList<>();
+            for (String hash : imageHashes) {
+                Map<String, Object> img = new java.util.HashMap<>();
+                img.put("hash", hash);
+                images.add(img);
+            }
+            assetFeedSpec.put("images", images);
+
+            // Headlines
+            List<Map<String, Object>> titlesList = new java.util.ArrayList<>();
+            for (String h : headlines) {
+                Map<String, Object> t = new java.util.HashMap<>();
+                t.put("text", h);
+                titlesList.add(t);
+            }
+            assetFeedSpec.put("titles", titlesList);
+
+            // Bodies
+            List<Map<String, Object>> bodiesList = new java.util.ArrayList<>();
+            for (String b : bodies) {
+                Map<String, Object> bodyMap = new java.util.HashMap<>();
+                bodyMap.put("text", b);
+                bodiesList.add(bodyMap);
+            }
+            assetFeedSpec.put("bodies", bodiesList);
+
+            // Link URLs
+            List<Map<String, Object>> linkUrls = new java.util.ArrayList<>();
+            Map<String, Object> linkUrlMap = new java.util.HashMap<>();
+            linkUrlMap.put("website_url", linkUrl);
+            linkUrls.add(linkUrlMap);
+            assetFeedSpec.put("link_urls", linkUrls);
+
+            // CTA
+            assetFeedSpec.put("call_to_action_types", java.util.List.of(cta));
+            assetFeedSpec.put("ad_formats", java.util.List.of("SINGLE_IMAGE"));
+
+            Map<String, Object> creativePayload = new java.util.HashMap<>();
+            creativePayload.put("name", name + " Dynamic Creative");
+            creativePayload.put("asset_feed_spec", assetFeedSpec);
+            creativePayload.put("page_id", pageId);
+
+            Map creativeResponse = webClientBuilder.build()
+                    .post()
+                    .uri("https://graph.facebook.com/v19.0/" + accountId + "/adcreatives?access_token=" + accessToken)
+                    .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
+                    .bodyValue(creativePayload)
+                    .retrieve()
+                    .onStatus(status -> status.is4xxClientError(), response ->
+                            response.bodyToMono(String.class).map(b -> {
+                                System.out.println("Meta dynamic creative error: " + b);
+                                return new RuntimeException("Dynamic creative error: " + b);
+                            })
+                    )
+                    .bodyToMono(Map.class)
+                    .block();
+
+            String creativeId = (String) creativeResponse.get("id");
+            System.out.println("Dynamic creative created: " + creativeId);
+            return creativeId;
+        } catch (Exception e) {
+            System.out.println("Dynamic creative failed: " + e.getMessage());
+            return null;
+        }
+    }
+    }
