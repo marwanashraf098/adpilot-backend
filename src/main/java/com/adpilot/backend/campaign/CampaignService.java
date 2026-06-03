@@ -472,17 +472,48 @@ public class CampaignService {
             adSetPayload.put("bid_strategy", "LOWEST_COST_WITHOUT_CAP");
             adSetPayload.put("status", "PAUSED");
 
+            String dynamicPageId = getPageId(accessToken, accountId);
             Map<String, Object> promotedObject = new java.util.HashMap<>();
-            promotedObject.put("page_id", "1108623479004638");
+            promotedObject.put("page_id", dynamicPageId);
             adSetPayload.put("promoted_object", promotedObject);
 
+            // Build targeting from AI strategy
             Map<String, Object> cleanTargeting = new java.util.HashMap<>();
-            cleanTargeting.put("age_min", 18);
-            cleanTargeting.put("age_max", 65);
-            Map<String, Object> geoLocations = new java.util.HashMap<>();
-            geoLocations.put("countries", java.util.List.of("EG"));
-            cleanTargeting.put("geo_locations", geoLocations);
+            try {
+                com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+                Map targetingMap = mapper.readValue(campaignData.get("targeting").toString(), Map.class);
+
+                // Age
+                Object ageMin = targetingMap.get("age_min");
+                Object ageMax = targetingMap.get("age_max");
+                cleanTargeting.put("age_min", ageMin != null ? Integer.parseInt(ageMin.toString()) : 18);
+                cleanTargeting.put("age_max", ageMax != null ? Integer.parseInt(ageMax.toString()) : 65);
+
+                // Gender
+                Object genders = targetingMap.get("genders");
+                if (genders != null) cleanTargeting.put("genders", genders);
+
+                // Location — always use country level (city keys from GPT are unreliable)
+                Map<String, Object> geoLocations = new java.util.HashMap<>();
+                geoLocations.put("countries", java.util.List.of("EG"));
+                cleanTargeting.put("geo_locations", geoLocations);
+
+            } catch (Exception e) {
+                System.out.println("Targeting parse error, using defaults: " + e.getMessage());
+                cleanTargeting.put("age_min", 18);
+                cleanTargeting.put("age_max", 65);
+                Map<String, Object> geoLocations = new java.util.HashMap<>();
+                geoLocations.put("countries", java.util.List.of("EG"));
+                cleanTargeting.put("geo_locations", geoLocations);
+            }
+            Map<String, Object> targetingAutomation = new java.util.HashMap<>();
+            targetingAutomation.put("advantage_audience", 0);
+            cleanTargeting.put("targeting_automation", targetingAutomation);
             adSetPayload.put("targeting", cleanTargeting);
+
+            System.out.println("Creating ad set with targeting: age " +
+                    cleanTargeting.get("age_min") + "-" + cleanTargeting.get("age_max") +
+                    " genders: " + cleanTargeting.get("genders"));
 
             Map adSetResponse = webClientBuilder.build()
                     .post()
@@ -536,7 +567,7 @@ public class CampaignService {
                 System.out.println("Total unique image hashes: " + imageHashes.size());
 
                 if (!imageHashes.isEmpty()) {
-                    String pageId = getPageId(accessToken);
+                    String pageId = getPageId(accessToken , accountId);
 
                     // Parse copy variants
                     List<String> headlines = new java.util.ArrayList<>();
@@ -553,14 +584,13 @@ public class CampaignService {
                         bodies = mapper.readValue(bodiesJson, List.class);
                     }
 
-                    // Add default if no variants
                     if (headlines.isEmpty()) headlines.add(campaignData.getOrDefault("headline", "Learn More").toString());
                     if (bodies.isEmpty()) bodies.add(campaignData.getOrDefault("body", "").toString());
 
                     String linkUrl = campaignData.getOrDefault("linkUrl", "https://adpilot-frontend-chi.vercel.app").toString();
                     String ctaType = campaignData.getOrDefault("cta", "LEARN_MORE").toString();
 
-                    // Create one ad per image — each with rotated headline/body
+                    // Create one ad per image with rotated headline/body
                     List<String> createdAdIds = new java.util.ArrayList<>();
 
                     for (int i = 0; i < imageHashes.size(); i++) {
@@ -694,7 +724,19 @@ public class CampaignService {
     }
 
     // Helper — get page ID
-    private String getPageId(String accessToken) {
+    private String getPageId(String accessToken, String accountId) {
+        // First try to get from saved ad account
+        try {
+            AdAccount adAccount = adAccountRepository.findByPlatformAccountId(accountId);
+            if (adAccount != null && adAccount.getPageId() != null) {
+                System.out.println("Using saved page ID: " + adAccount.getPageId());
+                return adAccount.getPageId();
+            }
+        } catch (Exception e) {
+            System.out.println("Could not get page ID from account: " + e.getMessage());
+        }
+
+        // Fallback — fetch from Meta API
         try {
             Map pagesResponse = webClientBuilder.build()
                     .get()
@@ -710,9 +752,10 @@ public class CampaignService {
                 }
             }
         } catch (Exception e) {
-            System.out.println("Could not fetch pages: " + e.getMessage());
+            System.out.println("Could not fetch pages from API: " + e.getMessage());
         }
-        return "1108623479004638"; // fallback
+
+        return "1108623479004638"; // last resort fallback
     }
 
     // Helper — create single image creative

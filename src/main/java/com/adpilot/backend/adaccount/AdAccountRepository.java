@@ -8,4 +8,6 @@ import java.util.List;
 public interface AdAccountRepository extends JpaRepository<AdAccount, String> {
     List<AdAccount> findByUserId(String userId);
     boolean existsByUserIdAndPlatformAccountId(String userId, String platformAccountId);
+    AdAccount findByPlatformAccountId(String platformAccountId);
+
 }

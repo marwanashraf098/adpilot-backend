@@ -40,6 +40,8 @@ public class AdAccount {
 
     private String currency;
 
+    private String pageId;
+
     @Column(nullable = false)
     private String status; // ACTIVE, EXPIRED, DISCONNECTED
 

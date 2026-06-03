@@ -87,7 +87,25 @@ public class MetaOAuthService {
                 .accountName(accountName)
                 .currency(currency)
                 .build();
+        // Fetch and save Facebook page ID
+        try {
+            Map pagesResponse = webClientBuilder.build()
+                    .get()
+                    .uri("https://graph.facebook.com/v19.0/me/accounts?access_token=" + accessToken)
+                    .retrieve()
+                    .bodyToMono(Map.class)
+                    .block();
 
+            if (pagesResponse != null && pagesResponse.get("data") != null) {
+                List<Map> pages = (List<Map>) pagesResponse.get("data");
+                if (!pages.isEmpty()) {
+                    account.setPageId((String) pages.get(0).get("id"));
+                    System.out.println("Saved page ID: " + account.getPageId());
+                }
+            }
+        } catch (Exception e) {
+            System.out.println("Could not fetch page ID during OAuth: " + e.getMessage());
+        }
         return adAccountRepository.save(account);
     }
 
