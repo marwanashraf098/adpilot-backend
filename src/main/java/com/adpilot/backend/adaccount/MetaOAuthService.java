@@ -27,12 +27,13 @@ public class MetaOAuthService {
     private String redirectUri;
 
     // Step 1: Generate the Facebook OAuth URL
-    public String generateOAuthUrl(String userId) {
+    public String generateOAuthUrl(String userId, String source) {
+        String state = (source != null && !source.isEmpty()) ? userId + ":" + source : userId;
         return "https://www.facebook.com/dialog/oauth?" +
                 "client_id=" + appId +
                 "&redirect_uri=" + redirectUri +
-                "&state=" + userId +
-                "&scope=ads_read,ads_management,business_management";
+                "&state=" + state +
+                "&scope=ads_read,ads_management,business_management,pages_read_engagement";
     }
 
     // Step 2: Exchange code for access token

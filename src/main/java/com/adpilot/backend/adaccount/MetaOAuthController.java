@@ -16,8 +16,10 @@ public class MetaOAuthController {
 
     // Step 1: Frontend calls this to get the Facebook login URL
     @GetMapping("/oauth-url")
-    public ResponseEntity<Map<String, String>> getOAuthUrl(@RequestParam String userId) {
-        String url = metaOAuthService.generateOAuthUrl(userId);
+    public ResponseEntity<Map<String, String>> getOAuthUrl(
+            @RequestParam String userId,
+            @RequestParam(required = false) String source) {
+        String url = metaOAuthService.generateOAuthUrl(userId, source);
         return ResponseEntity.ok(Map.of("url", url));
     }
 
@@ -27,7 +29,9 @@ public class MetaOAuthController {
             @RequestParam String code,
             @RequestParam String state) {
 
-        String userId = state;
+        // state format: "userId" or "userId:onboarding"
+        String userId = state.contains(":") ? state.split(":")[0] : state;
+        boolean fromOnboarding = state.contains(":onboarding");
 
         // Exchange code for access token
         String accessToken = metaOAuthService.exchangeCodeForToken(code);
@@ -51,14 +55,18 @@ public class MetaOAuthController {
                             currency
                     );
                 } catch (RuntimeException e) {
-                    // Skip already connected accounts
                     System.out.println("Skipping already connected account: " + platformAccountId);
                 }
             }
         }
 
+        // Redirect based on where OAuth was initiated
+        String redirectUrl = fromOnboarding
+                ? "http://localhost:5173/onboarding?connected=true"
+                : "http://localhost:5173/dashboard?connected=true";
+
         return ResponseEntity.status(302)
-                .header("Location", "http://localhost:5173/dashboard?connected=true")
+                .header("Location", redirectUrl)
                 .build();
     }
 
