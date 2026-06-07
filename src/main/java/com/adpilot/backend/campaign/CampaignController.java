@@ -74,4 +74,11 @@ public class CampaignController {
 
         return ResponseEntity.ok(campaignService.createCampaign(userId, campaignData));
     }
+
+    @PostMapping("/execute-action")
+    public ResponseEntity<Map<String, Object>> executeAction(
+            @RequestParam String userId,
+            @RequestBody Map<String, Object> action) {
+        return ResponseEntity.ok(campaignService.executeAction(userId, action));
+    }
 }

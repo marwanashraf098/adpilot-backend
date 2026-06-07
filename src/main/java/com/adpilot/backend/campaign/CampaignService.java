@@ -881,4 +881,105 @@ public class CampaignService {
             return null;
         }
     }
+
+    public Map<String, Object> executeAction(String userId, Map<String, Object> action) {
+        String actionType = (String) action.get("type");
+        String entityId = (String) action.get("entityId"); // platform ID (Meta campaign/adset/ad ID)
+        String entityLevel = (String) action.get("level"); // campaign, adset, ad
+        Object newValue = action.get("newValue");
+
+        // Get access token for this user
+        List<AdAccount> accounts = adAccountRepository.findByUserId(userId);
+        AdAccount adAccount = accounts.stream()
+                .filter(a -> a.getPlatform().equals("META"))
+                .findFirst()
+                .orElseThrow(() -> new RuntimeException("No Meta account found"));
+
+        String accessToken = adAccount.getAccessToken();
+
+        try {
+            Map<String, Object> payload = new java.util.HashMap<>();
+            String endpoint = "";
+
+            switch (actionType) {
+                case "PAUSE_CAMPAIGN":
+                    payload.put("status", "PAUSED");
+                    endpoint = "https://graph.facebook.com/v19.0/" + entityId;
+                    break;
+                case "RESUME_CAMPAIGN":
+                    payload.put("status", "ACTIVE");
+                    endpoint = "https://graph.facebook.com/v19.0/" + entityId;
+                    break;
+                case "PAUSE_ADSET":
+                    payload.put("status", "PAUSED");
+                    endpoint = "https://graph.facebook.com/v19.0/" + entityId;
+                    break;
+                case "RESUME_ADSET":
+                    payload.put("status", "ACTIVE");
+                    endpoint = "https://graph.facebook.com/v19.0/" + entityId;
+                    break;
+                case "PAUSE_AD":
+                    payload.put("status", "PAUSED");
+                    endpoint = "https://graph.facebook.com/v19.0/" + entityId;
+                    break;
+                case "RESUME_AD":
+                    payload.put("status", "ACTIVE");
+                    endpoint = "https://graph.facebook.com/v19.0/" + entityId;
+                    break;
+                case "INCREASE_BUDGET":
+                case "DECREASE_BUDGET":
+                    int budgetCents = (int)(Double.parseDouble(newValue.toString()) * 100);
+                    payload.put("daily_budget", budgetCents);
+                    endpoint = "https://graph.facebook.com/v19.0/" + entityId;
+                    break;
+                default:
+                    throw new RuntimeException("Unknown action type: " + actionType);
+            }
+
+            System.out.println("Executing action: " + actionType + " on " + entityId);
+            System.out.println("Payload: " + payload);
+
+            Map response = webClientBuilder.build()
+                    .post()
+                    .uri(endpoint + "?access_token=" + accessToken)
+                    .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
+                    .bodyValue(payload)
+                    .retrieve()
+                    .onStatus(status -> status.is4xxClientError(), res ->
+                            res.bodyToMono(String.class).map(b -> {
+                                System.out.println("Meta action error: " + b);
+                                return new RuntimeException("Meta error: " + b);
+                            })
+                    )
+                    .bodyToMono(Map.class)
+                    .block();
+
+            System.out.println("Action executed successfully: " + response);
+
+            // Log the action
+            Map<String, Object> result = new java.util.HashMap<>();
+            result.put("success", true);
+            result.put("actionType", actionType);
+            result.put("entityId", entityId);
+            result.put("message", getActionMessage(actionType, newValue));
+            return result;
+
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to execute action: " + e.getMessage());
+        }
+    }
+
+    private String getActionMessage(String actionType, Object newValue) {
+        switch (actionType) {
+            case "PAUSE_CAMPAIGN": return "Campaign paused successfully";
+            case "RESUME_CAMPAIGN": return "Campaign resumed successfully";
+            case "PAUSE_ADSET": return "Ad set paused successfully";
+            case "RESUME_ADSET": return "Ad set resumed successfully";
+            case "PAUSE_AD": return "Ad paused successfully";
+            case "RESUME_AD": return "Ad resumed successfully";
+            case "INCREASE_BUDGET": return "Budget increased to EGP " + newValue;
+            case "DECREASE_BUDGET": return "Budget decreased to EGP " + newValue;
+            default: return "Action executed successfully";
+        }
+    }
     }
