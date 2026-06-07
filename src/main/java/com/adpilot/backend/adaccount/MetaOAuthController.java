@@ -62,8 +62,8 @@ public class MetaOAuthController {
 
         // Redirect based on where OAuth was initiated
         String redirectUrl = fromOnboarding
-                ? "http://localhost:5173/onboarding?connected=true"
-                : "http://localhost:5173/dashboard?connected=true";
+                ? "https://www.getadpilot.co/onboarding?connected=true"
+                : "https://www.getadpilot.co/dashboard?connected=true";
 
         return ResponseEntity.status(302)
                 .header("Location", redirectUrl)
